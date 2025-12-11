@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 from google import genai
 
-# --- ページ設定（プロ仕様のワイド画面） ---
+# --- ページ設定 ---
 st.set_page_config(page_title="Financial Zombie", page_icon="📈", layout="wide")
 
 # --- APIキー読み込み ---
@@ -15,88 +15,95 @@ except:
 
 client = genai.Client(api_key=api_key)
 
-# --- AI分析関数 ---
+# --- AI分析関数 (軽量化・安定版) ---
 def analyze_stock(client, ticker, stock_info, history_data):
-    # 最新の株価データ（過去5日分）をテキスト化
+    # 最新の株価データ（直近5日分）
     recent_data = history_data.tail(5).to_string()
     
+    # 【重要】データ量を減らす（500文字制限）
+    # これで「429 RESOURCE_EXHAUSTED」エラーを回避します
+    summary = stock_info.get('longBusinessSummary', '情報なし')
+    if len(summary) > 500:
+        summary = summary[:500] + "..."
+    
+    # プロンプト（AIへの命令書）
     prompt = f"""
-    あなたはウォール街の伝説的なヘッジファンドマネージャーです。
-    以下の銘柄を分析し、投資判断を行ってください。
+    あなたはウォール街のヘッジファンドマネージャーです。
+    以下のデータに基づき、この株の「短期的な投資判断」を行ってください。
 
     【銘柄】{ticker}
-    【企業情報】{stock_info.get('longBusinessSummary', '情報なし')}
-    【直近の株価推移】
+    【企業概要】{summary}
+    【直近の株価】
     {recent_data}
 
     【指示】
-    Flash A（強気派）と Flash B（慎重派）の視点で議論させ、
-    最終的に Judge（裁判官）が「買い」「売り」「様子見」のいずれかを断言してください。
-    
-    出力フォーマット:
-    ### 🐂 強気シナリオ (Bull)
-    ...
-    ### 🐻 弱気シナリオ (Bear)
-    ...
-    ### ⚖️ 最終結論 (Judge)
-    **判断: [ 買い / 売り / 様子見 ]**
-    理由: ...
+    1. 強気派(Bull)と弱気派(Bear)の視点で簡潔に議論する。
+    2. 最終的に「買い」「売り」「様子見」のどれかを断言する。
     """
     
     try:
+        # モデルを 'gemini-1.5-flash' に変更（無料枠制限が緩く、安定している）
         res = client.models.generate_content(
-            model="gemini-2.0-flash", 
+            model="gemini-1.5-flash", 
             contents=prompt
         )
         return res.text
     except Exception as e:
-        return f"エラー: {e}"
+        return f"💥 分析エラーが発生しました: {e}"
 
 # --- メイン画面デザイン ---
 st.title("📈 Financial Zombie Dashboard")
 st.caption("AI x Stock Analysis | Proprietary Trading Tool")
 
 # 銘柄入力エリア
-col1, col2 = st.columns([1, 3])
-with col1:
-    # デフォルトはトヨタ(7203.T)やApple(AAPL)など
-    ticker = st.text_input("銘柄コードを入力", "7203.T")
-    st.caption("日本株は「数字.T」、米国株は「AAPL」など")
+col_input, col_metric = st.columns([1, 3])
 
-# データ取得
+with col_input:
+    # デフォルトはトヨタ(7203.T)
+    ticker = st.text_input("銘柄コード (例: 7203.T, AAPL)", "7203.T")
+    st.caption("※日本株は .T をつけてください")
+
+# データ取得と表示
 if ticker:
     try:
+        # yfinanceでデータ取得
         stock = yf.Ticker(ticker)
-        # 過去1年分のデータを取得
         hist = stock.history(period="1y")
-        
-        # 企業情報
         info = stock.info
         
-        with col2:
-            st.metric(
-                label=f"{info.get('shortName', ticker)} 現在値",
-                value=f"{hist['Close'].iloc[-1]:.2f}",
-                delta=f"{hist['Close'].iloc[-1] - hist['Close'].iloc[-2]:.2f}"
-            )
-
-        # --- チャート表示 ---
-        st.subheader("📊 Price Chart (1 Year)")
-        st.line_chart(hist['Close'])
-
-        # --- サイドバーでAI分析 ---
-        with st.sidebar:
-            st.header("🧠 Zombie AI Brain")
-            st.write("現在、あなたの資産を増やすための分析待機中...")
+        if hist.empty:
+            st.warning("データが見つかりません。銘柄コードを確認してください。")
+        else:
+            # 現在値の表示
+            current_price = hist['Close'].iloc[-1]
+            prev_price = hist['Close'].iloc[-2]
+            diff = current_price - prev_price
+            diff_percent = (diff / prev_price) * 100
             
-            if st.button("⚡ AI分析を開始", type="primary"):
-                with st.spinner("3つのAI脳が市場データを解析中..."):
-                    # AIに分析させる
-                    analysis_result = analyze_stock(client, ticker, info, hist)
-                    
-                    st.success("分析完了")
-                    st.markdown("---")
-                    st.markdown(analysis_result)
-                    
+            with col_metric:
+                st.metric(
+                    label=info.get('shortName', ticker),
+                    value=f"{current_price:,.0f} 円" if ".T" in ticker else f"${current_price:.2f}",
+                    delta=f"{diff:+.2f} ({diff_percent:+.2f}%)"
+                )
+
+            # チャート表示
+            st.subheader("📊 Price Chart (1 Year)")
+            st.line_chart(hist['Close'])
+
+            # --- サイドバー：AI分析 ---
+            with st.sidebar:
+                st.header("🧠 Zombie AI Brain")
+                st.info("AIが待機中...")
+                
+                if st.button("⚡ AI分析を開始", type="primary"):
+                    with st.spinner("思考中... (データ量最適化済み)"):
+                        result = analyze_stock(client, ticker, info, hist)
+                        
+                        st.success("分析完了")
+                        st.markdown("---")
+                        st.markdown(result)
+                        st.caption("※投資は自己責任で行ってください。")
+
     except Exception as e:
-        st.error(f"データ取得エラー: 銘柄コードを確認してください ({e})")
+        st.error(f"システムエラー: {e}")
