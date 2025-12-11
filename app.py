@@ -15,41 +15,46 @@ except:
 
 client = genai.Client(api_key=api_key)
 
-# --- AI分析関数 (修正版) ---
+# --- AI分析関数 (絶対安定版) ---
 def analyze_stock(client, ticker, stock_info, history_data):
-    # 最新の株価データ（直近5日分）
+    # 直近データを取得
     recent_data = history_data.tail(5).to_string()
     
-    # 【重要】データ量を減らす（500文字制限）
-    # これで「429」エラーを防ぎます
+    # 説明文を短くカット
     summary = stock_info.get('longBusinessSummary', '情報なし')
     if len(summary) > 500:
         summary = summary[:500] + "..."
     
-    # プロンプト
     prompt = f"""
-    あなたはウォール街のヘッジファンドマネージャーです。
-    以下のデータに基づき、この株の「短期的な投資判断」を行ってください。
+    あなたはプロの投資家です。以下の銘柄を分析し、投資判断を行ってください。
 
     【銘柄】{ticker}
     【企業概要】{summary}
-    【直近の株価】
+    【直近株価】
     {recent_data}
 
     【指示】
-    1. 強気派(Bull)と弱気派(Bear)の視点で簡潔に議論する。
-    2. 最終的に「買い」「売り」「様子見」のどれかを断言する。
+    強気材料と弱気材料を挙げ、最終的に「買い・売り・様子見」を判断せよ。
     """
     
     try:
-        # モデルを「以前動いていた2.0」に戻しました！
+        # 【修正】モデル名を "gemini-1.5-flash-latest" に変更
+        # これならバージョン問題でエラーになりません
         res = client.models.generate_content(
-            model="gemini-2.0-flash-exp", 
+            model="gemini-1.5-flash-latest", 
             contents=prompt
         )
         return res.text
     except Exception as e:
-        return f"💥 分析エラーが発生しました: {e}"
+        # 万が一これでもダメなら、汎用モデルを試す二段構え
+        try:
+            res = client.models.generate_content(
+                model="gemini-1.5-flash", 
+                contents=prompt
+            )
+            return res.text
+        except Exception as e2:
+            return f"エラー: {e2}"
 
 # --- メイン画面 ---
 st.title("📈 Financial Zombie Dashboard")
