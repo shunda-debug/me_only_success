@@ -15,18 +15,18 @@ except:
 
 client = genai.Client(api_key=api_key)
 
-# --- AI分析関数 (軽量化・安定版) ---
+# --- AI分析関数 (修正版) ---
 def analyze_stock(client, ticker, stock_info, history_data):
     # 最新の株価データ（直近5日分）
     recent_data = history_data.tail(5).to_string()
     
     # 【重要】データ量を減らす（500文字制限）
-    # これで「429 RESOURCE_EXHAUSTED」エラーを回避します
+    # これで「429」エラーを防ぎます
     summary = stock_info.get('longBusinessSummary', '情報なし')
     if len(summary) > 500:
         summary = summary[:500] + "..."
     
-    # プロンプト（AIへの命令書）
+    # プロンプト
     prompt = f"""
     あなたはウォール街のヘッジファンドマネージャーです。
     以下のデータに基づき、この株の「短期的な投資判断」を行ってください。
@@ -42,39 +42,34 @@ def analyze_stock(client, ticker, stock_info, history_data):
     """
     
     try:
-        # モデルを 'gemini-1.5-flash' に変更（無料枠制限が緩く、安定している）
+        # モデルを「以前動いていた2.0」に戻しました！
         res = client.models.generate_content(
-            model="gemini-1.5-flash", 
+            model="gemini-2.0-flash-exp", 
             contents=prompt
         )
         return res.text
     except Exception as e:
         return f"💥 分析エラーが発生しました: {e}"
 
-# --- メイン画面デザイン ---
+# --- メイン画面 ---
 st.title("📈 Financial Zombie Dashboard")
 st.caption("AI x Stock Analysis | Proprietary Trading Tool")
 
-# 銘柄入力エリア
 col_input, col_metric = st.columns([1, 3])
 
 with col_input:
-    # デフォルトはトヨタ(7203.T)
     ticker = st.text_input("銘柄コード (例: 7203.T, AAPL)", "7203.T")
     st.caption("※日本株は .T をつけてください")
 
-# データ取得と表示
 if ticker:
     try:
-        # yfinanceでデータ取得
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1y")
         info = stock.info
         
         if hist.empty:
-            st.warning("データが見つかりません。銘柄コードを確認してください。")
+            st.warning("データが見つかりません。")
         else:
-            # 現在値の表示
             current_price = hist['Close'].iloc[-1]
             prev_price = hist['Close'].iloc[-2]
             diff = current_price - prev_price
@@ -87,17 +82,15 @@ if ticker:
                     delta=f"{diff:+.2f} ({diff_percent:+.2f}%)"
                 )
 
-            # チャート表示
             st.subheader("📊 Price Chart (1 Year)")
             st.line_chart(hist['Close'])
 
-            # --- サイドバー：AI分析 ---
             with st.sidebar:
                 st.header("🧠 Zombie AI Brain")
                 st.info("AIが待機中...")
                 
                 if st.button("⚡ AI分析を開始", type="primary"):
-                    with st.spinner("思考中... (データ量最適化済み)"):
+                    with st.spinner("市場データを解析中..."):
                         result = analyze_stock(client, ticker, info, hist)
                         
                         st.success("分析完了")
